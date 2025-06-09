@@ -1,5 +1,6 @@
 from tortoise import fields, models
 from tortoise.contrib.pydantic import pydantic_model_creator
+from pydantic import BaseModel, EmailStr
 
 
 class User(models.Model):
@@ -61,7 +62,41 @@ class PositionSkill(models.Model):
 
 
 # Pydantic models for API
-User_Pydantic = pydantic_model_creator(User, name="User", exclude=("hashed_password",))
-UserIn_Pydantic = pydantic_model_creator(User, name="UserIn", exclude_readonly=True)
+class UserBase(BaseModel):
+    username: str
+    email: EmailStr
+    job_title: str
+
+
+class UserCreate(UserBase):
+    password: str
+
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UserResponse(UserBase):
+    user_id: int
+
+    class Config:
+        from_attributes = True
+
+
+# Tortoise Pydantic models
+User_Pydantic = pydantic_model_creator(
+    User,
+    name="User",
+    exclude=("hashed_password",)
+)
+UserIn_Pydantic = pydantic_model_creator(
+    User,
+    name="UserIn",
+    exclude_readonly=True
+)
 Skill_Pydantic = pydantic_model_creator(Skill, name="Skill")
-JobPosition_Pydantic = pydantic_model_creator(JobPosition, name="JobPosition")
+JobPosition_Pydantic = pydantic_model_creator(
+    JobPosition,
+    name="JobPosition"
+)

@@ -4,7 +4,7 @@ A FastAPI application for skill recommendations using Tortoise ORM with PostgreS
 
 ## Features
 
-- User authentication with JWT tokens
+- Bearer token authentication with password
 - Skill management
 - Job position management
 - Skill-based job recommendations
@@ -37,12 +37,15 @@ pip install -r requirements.txt
 
 4. Create a `.env` file in the project root with the following variables:
 ```env
+# Application settings
+VERSION=1
+
 # Database settings
-POSTGRES_USER=your_postgres_user
-POSTGRES_PASSWORD=your_postgres_password
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=skill_recommender
+DB_USER=your_postgres_user
+DB_PASSWORD=your_postgres_password
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=skill_recommender
 
 # JWT settings
 SECRET_KEY=your-secret-key-here
@@ -69,26 +72,79 @@ uvicorn main:app --reload
 
 ## API Endpoints
 
-### User Management
+### Authentication
 - POST `/api/v1/users/register` - Register a new user
-- POST `/api/v1/users/token` - Login and get access token
-- GET `/api/v1/users/me` - Get current user profile
+  ```json
+  {
+    "username": "user1",
+    "email": "user1@example.com",
+    "password": "your_password",
+    "job_title": "Developer"
+  }
+  ```
+  Response:
+  ```json
+  {
+    "user_id": 1,
+    "username": "user1",
+    "email": "user1@example.com",
+    "job_title": "Developer"
+  }
+  ```
+
+- POST `/api/v1/users/token` - Get Bearer token for authentication
+  ```json
+  {
+    "email": "user1@example.com",
+    "password": "your_password"
+  }
+  ```
+  Response:
+  ```json
+  {
+    "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+    "token_type": "bearer"
+  }
+  ```
+
+### User Management
+- GET `/api/v1/users/me` - Get current user profile (requires Bearer token)
+  Response:
+  ```json
+  {
+    "user_id": 1,
+    "username": "user1",
+    "email": "user1@example.com",
+    "job_title": "Developer"
+  }
+  ```
 
 ### Skill Management
-- GET `/api/v1/skills` - List all skills
-- POST `/api/v1/skills` - Create a new skill
-- POST `/api/v1/skills/user/{skill_id}` - Add skill to user
-- DELETE `/api/v1/skills/user/{skill_id}` - Remove skill from user
+- GET `/api/v1/skills` - List all skills (requires Bearer token)
+- POST `/api/v1/skills` - Create a new skill (requires Bearer token)
+- POST `/api/v1/skills/user/{skill_id}` - Add skill to user (requires Bearer token)
+- DELETE `/api/v1/skills/user/{skill_id}` - Remove skill from user (requires Bearer token)
 
 ### Job Position Management
-- GET `/api/v1/jobs` - List all job positions
-- POST `/api/v1/jobs` - Create a new job position
-- GET `/api/v1/jobs/recommendations` - Get job recommendations based on user skills
+- GET `/api/v1/jobs` - List all job positions (requires Bearer token)
+- POST `/api/v1/jobs` - Create a new job position (requires Bearer token)
+- GET `/api/v1/jobs/recommendations` - Get job recommendations based on user skills (requires Bearer token)
+
+## Authentication
+
+The API uses Bearer token authentication with password verification. To access protected endpoints:
+
+1. Register a new user using the `/api/v1/users/register` endpoint with your email and password
+2. Get a Bearer token using the `/api/v1/users/token` endpoint with your email and password
+3. Include the token in the Authorization header for subsequent requests:
+```
+Authorization: Bearer <your_token>
+```
 
 ## Database Schema
 
 The application uses the following tables:
-- `users_trial` - User information
+- `users_trial` - User information (including hashed passwords)
 - `skills_trial` - Available skills
 - `users_skills_trial` - User-skill relationships
 - `job_positions_trial` - Job positions
