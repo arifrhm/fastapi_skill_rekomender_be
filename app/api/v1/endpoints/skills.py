@@ -12,16 +12,25 @@ router = APIRouter()
 async def get_skills(
     page: int = Query(1, ge=1, description="Page number"),
     size: int = Query(10, ge=1, le=100, description="Items per page"),
+    search: str = Query(None, description="Search term for skill name"),
     session: AsyncSession = Depends(get_session),
 ):
     # Calculate offset
     offset = (page - 1) * size
 
-    # Get total count
-    total = await session.scalar(select(func.count()).select_from(Skill))
+    # Base query
+    base_query = select(Skill)
+    
+    # Add search filter if search term is provided
+    if search:
+        base_query = base_query.where(Skill.skill_name.ilike(f"%{search}%"))
 
-    # Get paginated items
-    query = select(Skill).offset(offset).limit(size)
+    # Get total count with search filter
+    count_query = select(func.count()).select_from(base_query.subquery())
+    total = await session.scalar(count_query)
+
+    # Get paginated items with search filter
+    query = base_query.offset(offset).limit(size)
     result = await session.execute(query)
     items = result.scalars().all()
 
