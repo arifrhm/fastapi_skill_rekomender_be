@@ -35,6 +35,10 @@ def create_access_token(data: dict) -> str:
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
     )
     to_encode.update({"exp": expire})
+    # Ensure subject is string
+    if "sub" in to_encode:
+        to_encode["sub"] = str(to_encode["sub"])
+    print("Access token payload:", to_encode)  # Debug log
     return jwt.encode(
         to_encode,
         settings.SECRET_KEY,
@@ -48,6 +52,10 @@ def create_refresh_token(data: dict) -> str:
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
     )
     to_encode.update({"exp": expire})
+    # Ensure subject is string
+    if "sub" in to_encode:
+        to_encode["sub"] = str(to_encode["sub"])
+    print("Refresh token payload:", to_encode)  # Debug log
     return jwt.encode(
         to_encode,
         settings.SECRET_KEY,
@@ -72,10 +80,12 @@ async def get_current_user(
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM]
         )
-        user_id: int = payload.get("sub")
+        user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
-    except JWTError:
+        # Convert string user_id back to integer
+        user_id = int(user_id)
+    except (JWTError, ValueError):
         raise credentials_exception
     
     query = select(User).where(User.user_id == user_id)
@@ -154,8 +164,10 @@ async def get_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    access_token = create_access_token(data={"sub": db_user.user_id})
-    refresh_token = create_refresh_token(data={"sub": db_user.user_id})
+    # Create tokens with string user_id
+    user_id_str = str(db_user.user_id)
+    access_token = create_access_token(data={"sub": user_id_str})
+    refresh_token = create_refresh_token(data={"sub": user_id_str})
     
     return {
         "access_token": access_token,
@@ -178,20 +190,25 @@ async def refresh_token(
 ):
     try:
         token = credentials.credentials
+        print("Received token:", token)  # Debug log
         payload = jwt.decode(
             token,
             settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM]
+            algorithms=[settings.ALGORITHM],
+            options={"verify_sub": False}  # Disable subject validation
         )
-        raise Exception(payload)
-        user_id: int = payload.get("sub")
+        print("Decoded payload:", payload)  # Debug log
+        user_id = payload.get("sub")
         if user_id is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid refresh token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-    except JWTError:
+        # Convert to integer regardless of input type
+        user_id = int(str(user_id))
+    except (JWTError, ValueError) as e:
+        print("Token error:", str(e))  # Debug log
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
@@ -210,10 +227,13 @@ async def refresh_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Create new access token
-    access_token = create_access_token(data={"sub": user_id})
+    # Create new tokens with string user_id
+    user_id_str = str(user_id)
+    access_token = create_access_token(data={"sub": user_id_str})
+    refresh_token = create_refresh_token(data={"sub": user_id_str})
     
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer"
     }
