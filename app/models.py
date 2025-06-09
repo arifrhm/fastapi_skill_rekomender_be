@@ -74,8 +74,16 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+class SkillResponse(BaseModel):
+    skill_id: int
+    skill_name: str
+
+    class Config:
+        from_attributes = True
+
 class UserResponse(UserBase):
     user_id: int
+    skills: List[SkillResponse] = []
 
     class Config:
         from_attributes = True
@@ -92,16 +100,6 @@ class PaginatedResponse(BaseModel):
         from_attributes = True
 
 # Pydantic models for API responses
-class SkillResponse(BaseModel):
-    skill_id: int
-    skill_name: str
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
 class JobPositionResponse(BaseModel):
     position_id: int
     job_title: str

@@ -5,6 +5,7 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models import (
     User,
@@ -178,9 +179,14 @@ async def get_token(
 
 @router.get("/me", response_model=UserResponse)
 async def read_users_me(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session)
 ):
-    return current_user
+    # Reload user with skills
+    query = select(User).options(selectinload(User.skills)).where(User.user_id == current_user.user_id)
+    result = await session.execute(query)
+    user = result.scalar_one()
+    return user
 
 
 @router.post("/refresh")
