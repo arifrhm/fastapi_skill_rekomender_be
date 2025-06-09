@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List
 import polars as pl
 
@@ -7,16 +7,39 @@ from app.models import (
     User,
     Skill,
     PositionSkill,
-    JobPosition_Pydantic
+    JobPosition_Pydantic,
+    PaginatedResponse
 )
 from app.api.v1.endpoints.users import get_current_user
 
 router = APIRouter()
 
 
-@router.get("/", response_model=List[JobPosition_Pydantic])
-async def get_jobs():
-    return await JobPosition_Pydantic.from_queryset(JobPosition.all())
+@router.get("/", response_model=PaginatedResponse)
+async def get_jobs(
+    page: int = Query(1, ge=1, description="Page number"),
+    size: int = Query(10, ge=1, le=100, description="Items per page")
+):
+    # Calculate offset
+    offset = (page - 1) * size
+    
+    # Get total count
+    total = await JobPosition.all().count()
+    
+    # Get paginated items
+    queryset = JobPosition.all().offset(offset).limit(size)
+    items = await JobPosition_Pydantic.from_queryset(queryset)
+    
+    # Calculate total pages
+    pages = (total + size - 1) // size
+    
+    return {
+        "total": total,
+        "page": page,
+        "size": size,
+        "pages": pages,
+        "items": items
+    }
 
 
 @router.post("/", response_model=JobPosition_Pydantic)

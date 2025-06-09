@@ -1,6 +1,7 @@
 from tortoise import fields, models
 from tortoise.contrib.pydantic import pydantic_model_creator
 from pydantic import BaseModel, EmailStr
+from typing import List, Any
 
 
 class User(models.Model):
@@ -79,6 +80,18 @@ class UserLogin(BaseModel):
 
 class UserResponse(UserBase):
     user_id: int
+
+    class Config:
+        from_attributes = True
+
+
+# Pagination models
+class PaginatedResponse(BaseModel):
+    total: int
+    page: int
+    size: int
+    pages: int
+    items: List[Any]
 
     class Config:
         from_attributes = True
