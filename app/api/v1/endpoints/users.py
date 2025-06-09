@@ -6,13 +6,15 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy import insert
 
 from app.models import (
     User,
     UserCreate,
     UserLogin,
     UserResponse,
-    Skill
+    Skill,
+    user_skills
 )
 from app.core.config import settings
 from app.database import get_session
@@ -139,11 +141,25 @@ async def register_user(
                 detail="One or more skills not found"
             )
 
-        # Add skills to user
-        user_obj.skills.extend(skills)
+        # Add skills to user using the association table directly
+        for skill in skills:
+            stmt = user_skills.insert().values(
+                user_id=user_obj.user_id,
+                skill_id=skill.skill_id
+            )
+            await session.execute(stmt)
         await session.commit()
 
-    return user_obj
+    # Reload user with skills using selectinload
+    query = (
+        select(User)
+        .options(selectinload(User.skills))
+        .where(User.user_id == user_obj.user_id)
+    )
+    result = await session.execute(query)
+    user_with_skills = result.scalar_one()
+    
+    return user_with_skills
 
 
 @router.post("/login")
