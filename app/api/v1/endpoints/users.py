@@ -122,7 +122,7 @@ async def register_user(
     return user_obj
 
 
-@router.post("/token")
+@router.post("/login")
 async def get_token(
     user: UserLogin,
     session: AsyncSession = Depends(get_session)
