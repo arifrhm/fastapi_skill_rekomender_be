@@ -7,6 +7,7 @@ from typing import List
 from app.models import JobPosition, Skill, User, JobPositionResponse, PaginatedResponse
 from app.api.v1.endpoints.users import get_current_user
 from app.database import get_session
+from app.utils.skill_recommender import recommend_jobs_for_user
 
 router = APIRouter()
 
@@ -92,28 +93,14 @@ async def create_job(
 @router.get("/recommendations", response_model=List[JobPositionResponse])
 async def get_job_recommendations(
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session)
 ):
-    # Get all jobs with their required skills
-    query = select(JobPosition).options(selectinload(JobPosition.required_skills))
-    result = await session.execute(query)
-    jobs = result.scalars().all()
-
-    # Calculate match percentages
-    job_data = []
-    for job in jobs:
-        required_skills = set(skill.skill_id for skill in job.required_skills)
-        user_skill_ids = set(skill.skill_id for skill in current_user.skills)
-
-        matching_skills = len(user_skill_ids & required_skills)
-        match_percentage = (
-            matching_skills / len(required_skills) * 100 if required_skills else 0
-        )
-
-        job_data.append({"job": job, "match_percentage": match_percentage})
-
-    # Sort by match percentage
-    job_data.sort(key=lambda x: x["match_percentage"], reverse=True)
-
-    # Return top 10 matching jobs
-    return [JobPositionResponse.model_validate(item["job"]) for item in job_data[:10]]
+    # Get job recommendations using LLS
+    job_recommendations = await recommend_jobs_for_user(
+        current_user.user_id,
+        session,
+        top_n=10
+    )
+    
+    # Convert to response model
+    return [JobPositionResponse.model_validate(job) for job, _ in job_recommendations]
