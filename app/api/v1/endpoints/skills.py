@@ -1,12 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-
-from app.models import (
-    Skill,
-    User,
-    UserSkill,
-    Skill_Pydantic,
-    PaginatedResponse
-)
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.database import get_session
+from app.models import Skill, User, PaginatedResponse, SkillResponse
 from app.api.v1.endpoints.users import get_current_user
 
 router = APIRouter()
@@ -15,75 +11,117 @@ router = APIRouter()
 @router.get("/", response_model=PaginatedResponse)
 async def get_skills(
     page: int = Query(1, ge=1, description="Page number"),
-    size: int = Query(10, ge=1, le=100, description="Items per page")
+    size: int = Query(10, ge=1, le=100, description="Items per page"),
+    session: AsyncSession = Depends(get_session)
 ):
     # Calculate offset
     offset = (page - 1) * size
     
     # Get total count
-    total = await Skill.all().count()
+    total = await session.scalar(select(func.count()).select_from(Skill))
     
     # Get paginated items
-    queryset = Skill.all().offset(offset).limit(size)
-    items = await Skill_Pydantic.from_queryset(queryset)
+    query = select(Skill).offset(offset).limit(size)
+    result = await session.execute(query)
+    items = result.scalars().all()
     
     # Calculate total pages
     pages = (total + size - 1) // size
+    
+    # Convert SQLAlchemy models to Pydantic models
+    skill_responses = [SkillResponse.model_validate(skill) for skill in items]
     
     return {
         "total": total,
         "page": page,
         "size": size,
         "pages": pages,
-        "items": items
+        "items": skill_responses
     }
 
 
-@router.post("/", response_model=Skill_Pydantic)
-async def create_skill(skill_name: str):
-    skill = await Skill.get_or_none(skill_name=skill_name)
-    if skill:
-        return await Skill_Pydantic.from_tortoise_orm(skill)
+@router.post("/", response_model=SkillResponse)
+async def create_skill(
+    skill_name: str,
+    session: AsyncSession = Depends(get_session)
+):
+    # Capitalize first character of skill name
+    skill_name = skill_name.capitalize()
+    
+    # Check if skill exists
+    query = select(Skill).where(Skill.skill_name == skill_name)
+    result = await session.execute(query)
+    existing_skill = result.scalar_one_or_none()
+    
+    if existing_skill:
+        return existing_skill
 
-    skill = await Skill.create(skill_name=skill_name)
-    return await Skill_Pydantic.from_tortoise_orm(skill)
+    # Create new skill
+    skill = Skill(skill_name=skill_name)
+    session.add(skill)
+    await session.commit()
+    await session.refresh(skill)
+    
+    return skill
 
 
 @router.post("/user/{skill_id}")
-async def add_user_skill(skill_id: int, current_user: User = Depends(get_current_user)):
-    skill = await Skill.get_or_none(skill_id=skill_id)
+async def add_user_skill(
+    skill_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session)
+):
+    # Check if skill exists
+    query = select(Skill).where(Skill.skill_id == skill_id)
+    result = await session.execute(query)
+    skill = result.scalar_one_or_none()
+    
     if not skill:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Skill not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Skill not found"
         )
 
     # Check if user already has this skill
-    if await UserSkill.exists(user=current_user, skill=skill):
+    if skill in current_user.skills:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User already has this skill",
+            detail="User already has this skill"
         )
 
-    await UserSkill.create(user=current_user, skill=skill)
+    # Add skill to user
+    current_user.skills.append(skill)
+    await session.commit()
+    
     return {"message": "Skill added successfully"}
 
 
 @router.delete("/user/{skill_id}")
 async def remove_user_skill(
-    skill_id: int, current_user: User = Depends(get_current_user)
+    skill_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session)
 ):
-    skill = await Skill.get_or_none(skill_id=skill_id)
+    # Check if skill exists
+    query = select(Skill).where(Skill.skill_id == skill_id)
+    result = await session.execute(query)
+    skill = result.scalar_one_or_none()
+    
     if not skill:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Skill not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Skill not found"
         )
 
-    user_skill = await UserSkill.get_or_none(user=current_user, skill=skill)
-    if not user_skill:
+    # Check if user has this skill
+    if skill not in current_user.skills:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User does not have this skill",
+            detail="User does not have this skill"
         )
 
-    await user_skill.delete()
+    # Remove skill from user
+    current_user.skills.remove(skill)
+    await session.commit()
+    
     return {"message": "Skill removed successfully"}

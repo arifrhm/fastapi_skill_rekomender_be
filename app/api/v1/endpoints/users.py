@@ -3,16 +3,18 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
-from typing import List
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     User,
     UserCreate,
     UserLogin,
     UserResponse,
-    User_Pydantic
+    Skill
 )
 from app.core.config import settings
+from app.database import get_session
 
 router = APIRouter()
 security = HTTPBearer()
@@ -41,7 +43,8 @@ def create_access_token(data: dict) -> str:
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    session: AsyncSession = Depends(get_session)
 ) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -62,35 +65,72 @@ async def get_current_user(
     except JWTError:
         raise credentials_exception
     
-    user = await User.get_or_none(user_id=user_id)
+    query = select(User).where(User.user_id == user_id)
+    result = await session.execute(query)
+    user = result.scalar_one_or_none()
+    
     if user is None:
         raise credentials_exception
     return user
 
 
 @router.post("/register", response_model=UserResponse)
-async def register_user(user: UserCreate):
+async def register_user(
+    user: UserCreate,
+    session: AsyncSession = Depends(get_session)
+):
     # Check if user already exists
-    if await User.exists(email=user.email):
+    query = select(User).where(User.email == user.email)
+    result = await session.execute(query)
+    if result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
-    
+
     # Create user with hashed password
     user_dict = user.dict()
+    skill_ids = user_dict.pop("skill_ids", [])
     hashed_password = get_password_hash(user_dict.pop("password"))
-    
-    user_obj = await User.create(
+
+    # Create user
+    user_obj = User(
         **user_dict,
         hashed_password=hashed_password
     )
-    return await UserResponse.from_tortoise_orm(user_obj)
+    session.add(user_obj)
+    await session.commit()
+    await session.refresh(user_obj)
+
+    # Add skills if provided
+    if skill_ids:
+        # Verify all skills exist
+        query = select(Skill).where(Skill.skill_id.in_(skill_ids))
+        result = await session.execute(query)
+        skills = result.scalars().all()
+        
+        if len(skills) != len(skill_ids):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="One or more skills not found"
+            )
+
+        # Add skills to user
+        user_obj.skills.extend(skills)
+        await session.commit()
+
+    return user_obj
 
 
 @router.post("/token")
-async def get_token(user: UserLogin):
-    db_user = await User.get_or_none(email=user.email)
+async def get_token(
+    user: UserLogin,
+    session: AsyncSession = Depends(get_session)
+):
+    query = select(User).where(User.email == user.email)
+    result = await session.execute(query)
+    db_user = result.scalar_one_or_none()
+    
     if not db_user or not verify_password(
         user.password,
         db_user.hashed_password
@@ -109,5 +149,7 @@ async def get_token(user: UserLogin):
 
 
 @router.get("/me", response_model=UserResponse)
-async def read_users_me(current_user: User = Depends(get_current_user)):
-    return await UserResponse.from_tortoise_orm(current_user)
+async def read_users_me(
+    current_user: User = Depends(get_current_user)
+):
+    return current_user

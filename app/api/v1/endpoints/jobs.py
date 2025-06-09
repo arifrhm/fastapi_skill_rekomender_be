@@ -1,112 +1,119 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from typing import List
-import polars as pl
 
-from app.models import (
-    JobPosition,
-    User,
-    Skill,
-    PositionSkill,
-    JobPosition_Pydantic,
-    PaginatedResponse
-)
+from app.models import JobPosition, Skill, User, JobPositionResponse, PaginatedResponse
 from app.api.v1.endpoints.users import get_current_user
+from app.database import get_session
 
 router = APIRouter()
 
 
+# get all jobs with pagination
 @router.get("/", response_model=PaginatedResponse)
 async def get_jobs(
     page: int = Query(1, ge=1, description="Page number"),
-    size: int = Query(10, ge=1, le=100, description="Items per page")
+    size: int = Query(10, ge=1, le=100, description="Items per page"),
+    session: AsyncSession = Depends(get_session),
 ):
     # Calculate offset
     offset = (page - 1) * size
-    
+
     # Get total count
-    total = await JobPosition.all().count()
-    
-    # Get paginated items
-    queryset = JobPosition.all().offset(offset).limit(size)
-    items = await JobPosition_Pydantic.from_queryset(queryset)
-    
+    total = await session.scalar(select(func.count()).select_from(JobPosition))
+
+    # Get paginated items with relationships loaded
+    query = (
+        select(JobPosition)
+        .options(selectinload(JobPosition.required_skills))
+        .offset(offset)
+        .limit(size)
+    )
+    result = await session.execute(query)
+    items = result.scalars().all()
+
     # Calculate total pages
     pages = (total + size - 1) // size
-    
+
+    # Convert to Pydantic models
+    job_responses = [JobPositionResponse.model_validate(job) for job in items]
+
     return {
         "total": total,
         "page": page,
         "size": size,
         "pages": pages,
-        "items": items
+        "items": job_responses,
     }
 
 
-@router.post("/", response_model=JobPosition_Pydantic)
+@router.post("/", response_model=JobPositionResponse)
 async def create_job(
     job_title: str,
     skill_ids: List[int],
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ):
     # Verify all skills exist
-    skills = await Skill.filter(skill_id__in=skill_ids)
+    query = select(Skill).where(Skill.skill_id.in_(skill_ids))
+    result = await session.execute(query)
+    skills = result.scalars().all()
+
     if len(skills) != len(skill_ids):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="One or more skills not found"
+            detail="One or more skills not found",
         )
-    
-    job = await JobPosition.create(job_title=job_title)
-    
+
+    # Create job position
+    job = JobPosition(job_title=job_title)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
     # Add required skills
-    for skill in skills:
-        await PositionSkill.create(
-            position=job,
-            skill=skill
-        )
-    
-    return await JobPosition_Pydantic.from_tortoise_orm(job)
+    job.required_skills.extend(skills)
+    await session.commit()
+
+    # Reload job with relationships
+    query = (
+        select(JobPosition)
+        .options(selectinload(JobPosition.required_skills))
+        .where(JobPosition.job_id == job.job_id)
+    )
+    result = await session.execute(query)
+    job = result.scalar_one()
+
+    return JobPositionResponse.model_validate(job)
 
 
-@router.get("/recommendations", response_model=List[JobPosition_Pydantic])
+@router.get("/recommendations", response_model=List[JobPositionResponse])
 async def get_job_recommendations(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ):
-    # Get user's skills
-    user_skills = await current_user.user_skills.all().prefetch_related('skill')
-    user_skill_ids = [us.skill.skill_id for us in user_skills]
-    
     # Get all jobs with their required skills
-    jobs = await JobPosition.all().prefetch_related('position_skills__skill')
-    
-    # Use Polars for efficient data processing
+    query = select(JobPosition).options(selectinload(JobPosition.required_skills))
+    result = await session.execute(query)
+    jobs = result.scalars().all()
+
+    # Calculate match percentages
     job_data = []
     for job in jobs:
-        required_skills = [
-            ps.skill.skill_id
-            for ps in job.position_skills
-        ]
-        matching_skills = len(
-            set(user_skill_ids) & set(required_skills)
-        )
+        required_skills = set(skill.skill_id for skill in job.required_skills)
+        user_skill_ids = set(skill.skill_id for skill in current_user.skills)
+
+        matching_skills = len(user_skill_ids & required_skills)
         match_percentage = (
-            matching_skills / len(required_skills) * 100
-            if required_skills else 0
+            matching_skills / len(required_skills) * 100 if required_skills else 0
         )
-        
-        job_data.append({
-            "job": job,
-            "match_percentage": match_percentage
-        })
-    
+
+        job_data.append({"job": job, "match_percentage": match_percentage})
+
     # Sort by match percentage
-    job_data.sort(
-        key=lambda x: x["match_percentage"],
-        reverse=True
-    )
-    
+    job_data.sort(key=lambda x: x["match_percentage"], reverse=True)
+
     # Return top 10 matching jobs
-    return [
-        await JobPosition_Pydantic.from_tortoise_orm(item["job"])
-        for item in job_data[:10]
-    ] 
+    return [JobPositionResponse.model_validate(item["job"]) for item in job_data[:10]]

@@ -23,6 +23,33 @@ class Settings(BaseSettings):
             f"{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
         )
 
+    @property
+    def DATABASE_CONFIG(self) -> dict:
+        return {
+            "connections": {
+                "default": {
+                    "engine": "tortoise.backends.asyncpg",
+                    "credentials": {
+                        "database": self.DB_NAME,
+                        "host": self.DB_HOST,
+                        "password": self.DB_PASSWORD,
+                        "port": self.DB_PORT,
+                        "user": self.DB_USER,
+                        "server_settings": {
+                            "timezone": "UTC",
+                            "datestyle": "ISO, DMY"
+                        }
+                    }
+                }
+            },
+            "apps": {
+                "models": {
+                    "models": ["app.models"],
+                    "default_connection": "default",
+                }
+            }
+        }
+
     # JWT settings
     SECRET_KEY: str
     ALGORITHM: str

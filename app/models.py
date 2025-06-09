@@ -1,66 +1,64 @@
-from tortoise import fields, models
-from tortoise.contrib.pydantic import pydantic_model_creator
-from pydantic import BaseModel, EmailStr
+from datetime import datetime
 from typing import List, Any
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Table
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from pydantic import BaseModel, EmailStr
 
+class Base(DeclarativeBase):
+    pass
 
-class User(models.Model):
-    user_id = fields.IntField(pk=True)
-    username = fields.CharField(max_length=255, unique=True)
-    email = fields.CharField(max_length=255, unique=True)
-    hashed_password = fields.CharField(max_length=255)
-    job_title = fields.CharField(max_length=100)
-    created_at = fields.DatetimeField(auto_now_add=True)
-    updated_at = fields.DatetimeField(auto_now=True)
+# Association tables
+user_skills = Table(
+    "users_skills_trial",
+    Base.metadata,
+    Column("user_skill_id", Integer, primary_key=True),
+    Column("user_id", Integer, ForeignKey("users_trial.user_id")),
+    Column("skill_id", Integer, ForeignKey("skills_trial.skill_id")),
+    Column("created_at", DateTime, default=datetime.utcnow)
+)
 
-    class Meta:
-        table = "users_trial"
+position_skills = Table(
+    "position_skills_trial",
+    Base.metadata,
+    Column("position_skill_id", Integer, primary_key=True),
+    Column("position_id", Integer, ForeignKey("job_positions_trial.position_id")),
+    Column("skill_id", Integer, ForeignKey("skills_trial.skill_id")),
+    Column("created_at", DateTime, default=datetime.utcnow)
+)
 
+class User(Base):
+    __tablename__ = "users_trial"
 
-class Skill(models.Model):
-    skill_id = fields.IntField(pk=True)
-    skill_name = fields.CharField(max_length=255, unique=True)
-    created_at = fields.DatetimeField(auto_now_add=True)
-    updated_at = fields.DatetimeField(auto_now=True)
+    user_id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(255), unique=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True)
+    hashed_password: Mapped[str] = mapped_column(String(255))
+    job_title: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    class Meta:
-        table = "skills_trial"
+    skills = relationship("Skill", secondary=user_skills, back_populates="users")
 
+class Skill(Base):
+    __tablename__ = "skills_trial"
 
-class UserSkill(models.Model):
-    user_skill_id = fields.IntField(pk=True)
-    user = fields.ForeignKeyField("models.User", related_name="user_skills")
-    skill = fields.ForeignKeyField("models.Skill", related_name="user_skills")
-    created_at = fields.DatetimeField(auto_now_add=True)
+    skill_id: Mapped[int] = mapped_column(primary_key=True)
+    skill_name: Mapped[str] = mapped_column(String(255), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    class Meta:
-        table = "users_skills_trial"
+    users = relationship("User", secondary=user_skills, back_populates="skills")
+    positions = relationship("JobPosition", secondary=position_skills, back_populates="required_skills")
 
+class JobPosition(Base):
+    __tablename__ = "job_positions_trial"
 
-class JobPosition(models.Model):
-    position_id = fields.IntField(pk=True)
-    job_title = fields.CharField(max_length=255, unique=True)
-    created_at = fields.DatetimeField(auto_now_add=True)
-    updated_at = fields.DatetimeField(auto_now=True)
-    required_skills = fields.ManyToManyField(
-        "models.Skill", through="position_skills_trial", related_name="job_positions"
-    )
+    position_id: Mapped[int] = mapped_column(primary_key=True)
+    job_title: Mapped[str] = mapped_column(String(255), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    class Meta:
-        table = "job_positions_trial"
-
-
-class PositionSkill(models.Model):
-    position_skill_id = fields.IntField(pk=True)
-    position = fields.ForeignKeyField(
-        "models.JobPosition", related_name="position_skills"
-    )
-    skill = fields.ForeignKeyField("models.Skill", related_name="position_skills")
-    created_at = fields.DatetimeField(auto_now_add=True)
-
-    class Meta:
-        table = "position_skills_trial"
-
+    required_skills = relationship("Skill", secondary=position_skills, back_populates="positions")
 
 # Pydantic models for API
 class UserBase(BaseModel):
@@ -68,22 +66,19 @@ class UserBase(BaseModel):
     email: EmailStr
     job_title: str
 
-
 class UserCreate(UserBase):
     password: str
-
+    skill_ids: List[int] = []
 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
-
 
 class UserResponse(UserBase):
     user_id: int
 
     class Config:
         from_attributes = True
-
 
 # Pagination models
 class PaginatedResponse(BaseModel):
@@ -96,20 +91,23 @@ class PaginatedResponse(BaseModel):
     class Config:
         from_attributes = True
 
+# Pydantic models for API responses
+class SkillResponse(BaseModel):
+    skill_id: int
+    skill_name: str
+    created_at: datetime
+    updated_at: datetime
 
-# Tortoise Pydantic models
-User_Pydantic = pydantic_model_creator(
-    User,
-    name="User",
-    exclude=("hashed_password",)
-)
-UserIn_Pydantic = pydantic_model_creator(
-    User,
-    name="UserIn",
-    exclude_readonly=True
-)
-Skill_Pydantic = pydantic_model_creator(Skill, name="Skill")
-JobPosition_Pydantic = pydantic_model_creator(
-    JobPosition,
-    name="JobPosition"
-)
+    class Config:
+        from_attributes = True
+
+
+class JobPositionResponse(BaseModel):
+    position_id: int
+    job_title: str
+    created_at: datetime
+    updated_at: datetime
+    required_skills: List[SkillResponse]
+
+    class Config:
+        from_attributes = True

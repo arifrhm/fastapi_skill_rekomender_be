@@ -1,13 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from tortoise.contrib.fastapi import register_tortoise
 from app.core.config import settings
 from app.api.v1.api import api_router
 from datetime import datetime
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="A FastAPI application with Tortoise ORM and Polars",
+    description="A FastAPI application with SQLAlchemy and Polars",
     version=settings.VERSION,
 )
 
@@ -22,15 +21,6 @@ app.add_middleware(
 
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
-
-# Tortoise ORM configuration
-register_tortoise(
-    app,
-    db_url=settings.DATABASE_URL,
-    modules={"models": ["app.models"]},
-    generate_schemas=True,
-    add_exception_handlers=True,
-)
 
 
 @app.get("/")
