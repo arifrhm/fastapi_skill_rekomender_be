@@ -2,64 +2,68 @@ import numpy as np
 from collections import Counter
 
 
-def log_likelihood(user_skills, job_skills):
+def entropy(*counts):
     """
-    Menghitung log likelihood dari skill pengguna
-    dibandingkan dengan skill pekerjaan.
+    Calculate entropy for LLS similarity calculation.
+    """
+    N = sum(counts)
+    H = 0.0
+    for k in counts:
+        if k > 0:
+            H += k * np.log(k / N)
+    return H
+
+
+def llr_similarity(set_a, set_b, universe=None):
+    """
+    Calculate Log Likelihood Ratio similarity between two sets of skills.
 
     Parameters:
-    - user_skills: Set atau list berisi skill yang dimiliki oleh pengguna.
-    - job_skills: Set atau list berisi skill yang diperlukan untuk pekerjaan.
+    - set_a: First set of skills (e.g., user skills)
+    - set_b: Second set of skills (e.g., job skills)
+    - universe: Optional universe set containing all possible skills
 
     Returns:
-    - log_likelihood_value: Nilai log likelihood untuk rekomendasi skill.
+    - llr: Log Likelihood Ratio similarity score
     """
-    user_skills_set = set(user_skills)
-    job_skills_set = set(job_skills)
+    set_a = set(set_a)
+    set_b = set(set_b)
+    if universe is None:
+        universe = set_a | set_b
+    else:
+        universe = set(universe)
 
-    # Menghindari pembagian dengan nol
-    if len(job_skills_set) == 0:
-        # Log likelihood tak terdefinisi
-        # jika tidak ada skill pekerjaan
-        return -np.inf
+    k11 = len(set_a & set_b)
+    k12 = len(set_b - set_a)
+    k21 = len(set_a - set_b)
+    k22 = len(universe - (set_a | set_b))
+    # N = k11 + k12 + k21 + k22
 
-    # Menghitung skill yang dimiliki pengguna yang sesuai dengan pekerjaan
-    matching_skills = user_skills_set.intersection(job_skills_set)
-    matching_skill_count = len(matching_skills)
+    H_k = entropy(k11, k12, k21, k22)
+    H_ki = entropy(k11 + k12, k21 + k22)
+    H_kj = entropy(k11 + k21, k12 + k22)
 
-    # Menghitung probabilitas
-    probability = matching_skill_count / len(job_skills_set)
-
-    # Menghitung log likelihood
-    log_likelihood_value = np.log(probability) if probability > 0 else -np.inf
-
-    return log_likelihood_value
+    llr = 2 * (H_k - H_ki - H_kj)
+    return llr
 
 
 def recommend_skills(user_skills, job_skills):
     """
-    Merekomendasikan skill yang perlu dipelajari
-    berdasarkan skill yang diperlukan di lowongan pekerjaan.
+    Recommend skills that need to be learned based on job requirements.
 
     Parameters:
-    - user_skills: List berisi skill yang dimiliki oleh pengguna.
-    - job_skills: Set atau list berisi skill yang diperlukan untuk pekerjaan.
+    - user_skills: List of skills possessed by the user
+    - job_skills: List of skills required for the job
 
     Returns:
-    - recommended_skills: List skill yang direkomendasikan untuk dipelajari.
+    - recommended_skills: List of recommended skills to learn
     """
-    # Menghitung frekuensi skill yang diperlukan
     skill_counts = Counter(job_skills)
-
-    # Mengumpulkan skill yang tidak dimiliki pengguna
     user_skill_set = set(user_skills)
     recommended_skills = [
         skill for skill in skill_counts if skill not in user_skill_set
     ]
-
-    # Mengurutkan skill berdasarkan frekuensi (berdasarkan seberapa banyak mereka muncul)
     recommended_skills.sort(key=lambda skill: skill_counts[skill], reverse=True)
-
     return recommended_skills
 
 
@@ -74,9 +78,11 @@ JOB_TITLE_VARIATIONS = {
         "Backend Software Engineer",
         "Back End Software Engineer",
         "Backend Software Developer",
-        "Back End Software Developer"
+        "Back End Software Developer",
     ],
     "Frontend Engineer/Developer": [
+        "Frontend",
+        "Front End",
         "Frontend Engineer",
         "Front End Engineer",
         "Frontend Developer",
@@ -84,9 +90,11 @@ JOB_TITLE_VARIATIONS = {
         "Frontend Software Engineer",
         "Front End Software Engineer",
         "Frontend Software Developer",
-        "Front End Software Developer"
+        "Front End Software Developer",
     ],
     "Fullstack Engineer/Developer": [
+        "Fullstack",
+        "Full Stack",
         "Fullstack Engineer",
         "Full Stack Engineer",
         "Fullstack Developer",
@@ -94,16 +102,20 @@ JOB_TITLE_VARIATIONS = {
         "Fullstack Software Engineer",
         "Full Stack Software Engineer",
         "Fullstack Software Developer",
-        "Full Stack Software Developer"
+        "Full Stack Software Developer",
     ],
     "Devops": [
+        "Devops",
+        "DevOps",
         "DevOps Engineer",
         "DevOps Developer",
         "DevOps Specialist",
         "DevOps Consultant",
-        "DevOps Architect"
+        "DevOps Architect",
     ],
     "QA/Quality Assurance Engineer": [
+        "QA",
+        "Quality Assurance",
         "QA Engineer",
         "Quality Assurance Engineer",
         "QA Developer",
@@ -111,7 +123,7 @@ JOB_TITLE_VARIATIONS = {
         "QA Tester",
         "Quality Assurance Tester",
         "QA Analyst",
-        "Quality Assurance Analyst"
+        "Quality Assurance Analyst",
     ],
     "Cloud Engineer": [
         "Cloud Engineer",
@@ -121,57 +133,16 @@ JOB_TITLE_VARIATIONS = {
         "Cloud Infrastructure Engineer",
         "AWS Engineer",
         "Azure Engineer",
-        "GCP Engineer"
+        "GCP Engineer",
     ],
     "Business Analyst": [
+        "BA",
+        "Business",
         "Business Analyst",
         "Business Systems Analyst",
         "IT Business Analyst",
         "Technical Business Analyst",
         "Senior Business Analyst",
-        "Lead Business Analyst"
-    ]
+        "Lead Business Analyst",
+    ],
 }
-
-
-
-# # Data Pengguna dan Lowongan Pekerjaan
-# user_name = "Maman"
-# user_skills = ['Python', 'Java', 'JavaScript', 'Docker', 'PostgreSQL']
-
-# job_postings = [
-#     {"title": "Backend Engineer", "skills": ['Python', 'Kubernetes', 'AWS']},
-#     {"title": "Backend Developer", "skills": ['ExpressJS', 'JavaScript', 'Prisma', 'AWS']},
-#     {"title": "Backend Developer", "skills": ['Laravel', 'MySQL']}
-# ]
-
-# # Menghitung log likelihood untuk setiap lowongan pekerjaan dan memilih yang terbaik
-# max_ll_value = -np.inf
-# best_job = None
-
-# for job in job_postings:
-#     title = job["title"]
-#     job_skills = job["skills"]
-#     ll_value = log_likelihood(user_skills, job_skills)
-
-#     if ll_value > max_ll_value:
-#         max_ll_value = ll_value
-#         best_job = job
-
-# # Menampilkan informasi tentang lowongan terbaik
-# if best_job is not None:
-#     title = best_job["title"]
-#     job_skills = best_job["skills"]
-#     print(f'Lowongan terbaik: {title}')
-#     print(f'Skill pekerjaan: {job_skills}')
-#     print(f'Log Likelihood tertinggi: {max_ll_value:.4f}')
-
-#     # Merekomendasikan skill yang perlu dipelajari berdasarkan lowongan terbaik
-#     recommended_skills = recommend_skills(user_skills, job_skills)
-#     print("\nSkill yang direkomendasikan untuk dipelajari:")
-#     print(recommended_skills)
-# else:
-#     print("Tidak ada lowongan pekerjaan yang tersedia.")
-
-
-
