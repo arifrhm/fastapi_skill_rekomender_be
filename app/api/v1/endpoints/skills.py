@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_session
 from app.models import Skill, User, PaginatedResponse, SkillResponse
 from app.api.v1.endpoints.users import get_current_user
+from sqlalchemy.orm import selectinload
 
 router = APIRouter()
 
@@ -80,6 +81,15 @@ async def add_user_skill(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
+    # Reload user with skills relationship
+    query = (
+        select(User)
+        .options(selectinload(User.skills))
+        .where(User.user_id == current_user.user_id)
+    )
+    result = await session.execute(query)
+    user = result.scalar_one()
+
     # Check if skill exists
     query = select(Skill).where(Skill.skill_id == skill_id)
     result = await session.execute(query)
@@ -91,14 +101,14 @@ async def add_user_skill(
         )
 
     # Check if user already has this skill
-    if skill in current_user.skills:
+    if skill in user.skills:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User already has this skill",
         )
 
     # Add skill to user
-    current_user.skills.append(skill)
+    user.skills.append(skill)
     await session.commit()
 
     return {"message": "Skill added successfully"}
@@ -110,6 +120,15 @@ async def remove_user_skill(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
+    # Reload user with skills relationship
+    query = (
+        select(User)
+        .options(selectinload(User.skills))
+        .where(User.user_id == current_user.user_id)
+    )
+    result = await session.execute(query)
+    user = result.scalar_one()
+
     # Check if skill exists
     query = select(Skill).where(Skill.skill_id == skill_id)
     result = await session.execute(query)
@@ -121,14 +140,14 @@ async def remove_user_skill(
         )
 
     # Check if user has this skill
-    if skill not in current_user.skills:
+    if skill not in user.skills:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User does not have this skill",
         )
 
     # Remove skill from user
-    current_user.skills.remove(skill)
+    user.skills.remove(skill)
     await session.commit()
 
     return {"message": "Skill removed successfully"}
