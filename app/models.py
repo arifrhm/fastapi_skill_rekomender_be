@@ -1,64 +1,91 @@
-from datetime import datetime
 from typing import List, Any
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Table
+from sqlalchemy import Column, Integer, String, ForeignKey, Table, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from pydantic import BaseModel, EmailStr
+
 
 class Base(DeclarativeBase):
     pass
 
+
 # Association tables
 user_skills = Table(
-    "users_skills_trial",
+    "user_skills",
     Base.metadata,
-    Column("user_skill_id", Integer, primary_key=True),
-    Column("user_id", Integer, ForeignKey("users_trial.user_id")),
-    Column("skill_id", Integer, ForeignKey("skills_trial.skill_id")),
-    Column("created_at", DateTime, default=datetime.utcnow)
+    Column(
+        "user_id",
+        Integer,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        primary_key=True
+    ),
+    Column(
+        "skill_id",
+        Integer,
+        ForeignKey("skills.skill_id", ondelete="CASCADE"),
+        primary_key=True
+    )
 )
 
-position_skills = Table(
-    "position_skills_trial",
+job_skills = Table(
+    "job_skills",
     Base.metadata,
-    Column("position_skill_id", Integer, primary_key=True),
-    Column("position_id", Integer, ForeignKey("job_positions_trial.position_id")),
-    Column("skill_id", Integer, ForeignKey("skills_trial.skill_id")),
-    Column("created_at", DateTime, default=datetime.utcnow)
+    Column(
+        "job_id",
+        Integer,
+        ForeignKey("jobs.job_id", ondelete="CASCADE"),
+        primary_key=True
+    ),
+    Column(
+        "skill_id",
+        Integer,
+        ForeignKey("skills.skill_id", ondelete="CASCADE"),
+        primary_key=True
+    )
 )
+
 
 class User(Base):
-    __tablename__ = "users_trial"
+    __tablename__ = "users"
 
     user_id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(255), unique=True)
     email: Mapped[str] = mapped_column(String(255), unique=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     job_title: Mapped[str] = mapped_column(String(100))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     skills = relationship("Skill", secondary=user_skills, back_populates="users")
 
-class Skill(Base):
-    __tablename__ = "skills_trial"
 
-    skill_id: Mapped[int] = mapped_column(primary_key=True)
+class Skill(Base):
+    __tablename__ = "skills"
+
+    skill_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     skill_name: Mapped[str] = mapped_column(String(255), unique=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     users = relationship("User", secondary=user_skills, back_populates="skills")
-    positions = relationship("JobPosition", secondary=position_skills, back_populates="required_skills")
+    jobs = relationship(
+        "Job", 
+        secondary=job_skills, 
+        back_populates="required_skills"
+    )
 
-class JobPosition(Base):
-    __tablename__ = "job_positions_trial"
 
-    position_id: Mapped[int] = mapped_column(primary_key=True)
-    job_title: Mapped[str] = mapped_column(String(255), unique=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+class Job(Base):
+    __tablename__ = "jobs"
 
-    required_skills = relationship("Skill", secondary=position_skills, back_populates="positions")
+    job_id: Mapped[int] = mapped_column(primary_key=True)
+    job_title: Mapped[str] = mapped_column(Text)
+    job_detail_link: Mapped[str] = mapped_column(Text)
+    company: Mapped[str] = mapped_column(Text)
+    locations: Mapped[str] = mapped_column(Text)
+    job_details: Mapped[str] = mapped_column(Text)
+
+    required_skills = relationship(
+        "Skill", 
+        secondary=job_skills, 
+        back_populates="jobs"
+    )
+
 
 # Pydantic models for API
 class UserBase(BaseModel):
@@ -66,13 +93,16 @@ class UserBase(BaseModel):
     email: EmailStr
     job_title: str
 
+
 class UserCreate(UserBase):
     password: str
     skill_ids: List[int] = []
 
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
 
 class SkillResponse(BaseModel):
     skill_id: int
@@ -81,12 +111,14 @@ class SkillResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class UserResponse(UserBase):
     user_id: int
     skills: List[SkillResponse] = []
 
     class Config:
         from_attributes = True
+
 
 # Pagination models
 class PaginatedResponse(BaseModel):
@@ -99,12 +131,15 @@ class PaginatedResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 # Pydantic models for API responses
-class JobPositionResponse(BaseModel):
-    position_id: int
+class JobResponse(BaseModel):
+    job_id: int
     job_title: str
-    created_at: datetime
-    updated_at: datetime
+    job_detail_link: str
+    company: str | None = None
+    locations: str
+    job_details: str
     required_skills: List[SkillResponse]
 
     class Config:
