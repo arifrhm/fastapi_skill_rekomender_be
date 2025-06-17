@@ -149,7 +149,6 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
     skill_ids: List[int] = []
-    role_id: int = 1  # Default to USER role (ID: 1)
 
 
 class UserLogin(BaseModel):
