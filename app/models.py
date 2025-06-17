@@ -1,11 +1,18 @@
 from typing import List, Any
-from sqlalchemy import Column, Integer, String, ForeignKey, Table, Text
+from sqlalchemy import Column, Integer, String, ForeignKey, Table, Text, Enum
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from pydantic import BaseModel, EmailStr
+
+import enum
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class UserRole(str, enum.Enum):
+    USER = "USER"
+    ADMIN = "ADMIN"
 
 
 # Association tables
@@ -43,6 +50,33 @@ job_skills = Table(
     )
 )
 
+user_roles = Table(
+    "user_roles",
+    Base.metadata,
+    Column(
+        "user_id",
+        Integer,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        primary_key=True
+    ),
+    Column(
+        "role_id",
+        Integer,
+        ForeignKey("roles.role_id", ondelete="CASCADE"),
+        primary_key=True
+    )
+)
+
+
+class Role(Base):
+    __tablename__ = "roles"
+
+    role_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    role_name: Mapped[str] = mapped_column(String(50), unique=True)
+    description: Mapped[str] = mapped_column(String(255), nullable=True)
+
+    users = relationship("User", secondary=user_roles, back_populates="roles")
+
 
 class User(Base):
     __tablename__ = "users"
@@ -54,6 +88,8 @@ class User(Base):
     job_title: Mapped[str] = mapped_column(String(100))
 
     skills = relationship("Skill", secondary=user_skills, back_populates="users")
+    roles = relationship("Role", secondary=user_roles, back_populates="users")
+    audit_history = relationship("AuditHistory", back_populates="user", cascade="all, delete-orphan")
 
 
 class Skill(Base):
@@ -88,6 +124,22 @@ class Job(Base):
 
 
 # Pydantic models for API
+class RoleBase(BaseModel):
+    role_name: str
+    description: str | None = None
+
+
+class RoleCreate(RoleBase):
+    pass
+
+
+class RoleResponse(RoleBase):
+    role_id: int
+
+    class Config:
+        from_attributes = True
+
+
 class UserBase(BaseModel):
     username: str
     email: EmailStr
@@ -97,6 +149,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
     skill_ids: List[int] = []
+    role_id: int = 1  # Default to USER role (ID: 1)
 
 
 class UserLogin(BaseModel):
@@ -115,6 +168,7 @@ class SkillResponse(BaseModel):
 class UserResponse(UserBase):
     user_id: int
     skills: List[SkillResponse] = []
+    role: RoleResponse
 
     class Config:
         from_attributes = True
@@ -141,6 +195,30 @@ class JobResponse(BaseModel):
     locations: str
     job_details: str
     required_skills: List[SkillResponse]
+
+    class Config:
+        from_attributes = True
+
+
+class AuditHistory(Base):
+    __tablename__ = "audit_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id", ondelete="CASCADE"))
+    ip_address: Mapped[str] = mapped_column(String(50))
+    recommendation_result: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(String(50))  # Store timestamp as string
+
+    user = relationship("User", back_populates="audit_history")
+
+
+class AuditHistoryResponse(BaseModel):
+    id: int
+    user_id: int
+    ip_address: str
+    recommendation_result: str
+    created_at: str
+    username: str
 
     class Config:
         from_attributes = True

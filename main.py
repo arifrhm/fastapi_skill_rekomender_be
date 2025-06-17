@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.v1.api import api_router
 from datetime import datetime
-# from app.database import create_tables
+from app.database import create_tables
 
 
 app = FastAPI(
@@ -23,6 +23,10 @@ app.add_middleware(
 
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+@app.on_event("startup")
+async def startup_event():
+    await create_tables()
 
 
 @app.get("/")

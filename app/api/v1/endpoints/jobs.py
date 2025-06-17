@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy import select, func, or_, distinct, not_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from typing import List, Tuple, Optional
 from pydantic import BaseModel
+from datetime import datetime
+import json
 
 from app.models import (
     Job,
@@ -11,6 +13,7 @@ from app.models import (
     User,
     JobResponse,
     PaginatedResponse,
+    AuditHistory,
 )
 from app.api.v1.endpoints.users import get_current_user
 from app.database import get_session
@@ -168,7 +171,6 @@ async def find_similar_users(
 
 @router.get(
     "/top-recommendation",
-    # response_model=TopRecommendationResponse,
     summary="Get top job recommendation",
     description="""
     Get the top 1 job recommendation based on log likelihood score.
@@ -186,6 +188,7 @@ async def find_similar_users(
     """,
 )
 async def get_top_job_recommendation(
+    request: Request,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -331,7 +334,8 @@ async def get_top_job_recommendation(
 
     print("\n=== End of Job Recommendation Process ===\n")
 
-    return {
+    # Prepare recommendation result
+    recommendation_result = {
         "job": {
             "job_id": best_job.job_id,
             "job_title": best_job.job_title,
@@ -351,3 +355,16 @@ async def get_top_job_recommendation(
             job_scores, key=lambda x: x["lls_score"], reverse=True
         )[:10],
     }
+
+    # Log audit history
+    client_host = request.client.host if request.client else "unknown"
+    audit_entry = AuditHistory(
+        user_id=current_user.user_id,
+        ip_address=client_host,
+        recommendation_result=json.dumps(recommendation_result),
+        created_at=datetime.now().isoformat()
+    )
+    session.add(audit_entry)
+    await session.commit()
+
+    return recommendation_result

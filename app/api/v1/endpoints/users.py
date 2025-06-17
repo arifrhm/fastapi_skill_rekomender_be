@@ -14,10 +14,13 @@ from app.models import (
     UserLogin,
     UserResponse,
     Skill,
-    user_skills
+    user_skills,
+    UserRole,
+    Role
 )
 from app.core.config import settings
 from app.database import get_session
+from app.core.auth import get_current_user, get_password_hash, create_access_token
 
 router = APIRouter()
 security = HTTPBearer()
@@ -94,7 +97,7 @@ async def get_current_user(
     query = select(User).where(User.user_id == user_id)
     result = await session.execute(query)
     user = result.scalar_one_or_none()
-    
+    print("User:", user)
     if user is None:
         raise credentials_exception
     return user
@@ -102,11 +105,11 @@ async def get_current_user(
 
 @router.post("/register", response_model=UserResponse)
 async def register_user(
-    user: UserCreate,
+    user_data: UserCreate,
     session: AsyncSession = Depends(get_session)
 ):
-    # Check if user already exists
-    query = select(User).where(User.email == user.email)
+    # Check if email already exists
+    query = select(User).where(User.email == user_data.email)
     result = await session.execute(query)
     if result.scalar_one_or_none():
         raise HTTPException(
@@ -114,52 +117,68 @@ async def register_user(
             detail="Email already registered"
         )
 
-    # Create user with hashed password
-    user_dict = user.dict()
-    skill_ids = user_dict.pop("skill_ids", [])
-    hashed_password = get_password_hash(user_dict.pop("password"))
+    # Check if username already exists
+    query = select(User).where(User.username == user_data.username)
+    result = await session.execute(query)
+    if result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username already taken"
+        )
 
-    # Create user
-    user_obj = User(
-        **user_dict,
-        hashed_password=hashed_password
+    # Verify role exists
+    query = select(Role).where(Role.role_id == user_data.role_id)
+    result = await session.execute(query)
+    role = result.scalar_one_or_none()
+    
+    if not role:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid role ID"
+        )
+
+    # Create new user
+    hashed_password = get_password_hash(user_data.password)
+    new_user = User(
+        username=user_data.username,
+        email=user_data.email,
+        hashed_password=hashed_password,
+        job_title=user_data.job_title
     )
-    session.add(user_obj)
+    
+    session.add(new_user)
     await session.commit()
-    await session.refresh(user_obj)
-
-    # Add skills if provided
-    if skill_ids:
-        # Verify all skills exist
-        query = select(Skill).where(Skill.skill_id.in_(skill_ids))
-        result = await session.execute(query)
-        skills = result.scalars().all()
-        
-        if len(skills) != len(skill_ids):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="One or more skills not found"
-            )
-
-        # Add skills to user using the association table directly
-        for skill in skills:
-            stmt = user_skills.insert().values(
-                user_id=user_obj.user_id,
-                skill_id=skill.skill_id
-            )
-            await session.execute(stmt)
-        await session.commit()
-
-    # Reload user with skills using selectinload
+    await session.refresh(new_user)
+    
+    # Add role to user
+    await session.execute(
+        insert(user_roles).values(
+            user_id=new_user.user_id,
+            role_id=user_data.role_id
+        )
+    )
+    await session.commit()
+    
+    # Reload user with relationships
     query = (
         select(User)
-        .options(selectinload(User.skills))
-        .where(User.user_id == user_obj.user_id)
+        .options(selectinload(User.roles), selectinload(User.skills))
+        .where(User.user_id == new_user.user_id)
     )
     result = await session.execute(query)
-    user_with_skills = result.scalar_one()
+    user_with_relationships = result.scalar_one()
     
-    return user_with_skills
+    # Create response with first role
+    user_dict = {
+        "user_id": user_with_relationships.user_id,
+        "username": user_with_relationships.username,
+        "email": user_with_relationships.email,
+        "job_title": user_with_relationships.job_title,
+        "skills": user_with_relationships.skills,
+        "roles": user_with_relationships.roles[0] if user_with_relationships.roles else None
+    }
+    
+    return UserResponse.model_validate(user_dict)
 
 
 @router.post("/login")
@@ -194,15 +213,33 @@ async def get_token(
 
 
 @router.get("/me", response_model=UserResponse)
-async def read_users_me(
+async def get_current_user_info(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session)
 ):
-    # Reload user with skills
-    query = select(User).options(selectinload(User.skills)).where(User.user_id == current_user.user_id)
+    """
+    Get current user information with first role and skills
+    """
+    # Reload user with relationships
+    query = (
+        select(User)
+        .options(selectinload(User.roles), selectinload(User.skills))
+        .where(User.user_id == current_user.user_id)
+    )
     result = await session.execute(query)
     user = result.scalar_one()
-    return user
+    
+    # Create response with first role
+    user_dict = {
+        "user_id": user.user_id,
+        "username": user.username,
+        "email": user.email,
+        "job_title": user.job_title,
+        "skills": user.skills,
+        "role": user.roles[0] if user.roles else None
+    }
+    
+    return UserResponse.model_validate(user_dict)
 
 
 @router.post("/refresh")
