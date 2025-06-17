@@ -20,7 +20,7 @@ async def get_skills(
     offset = (page - 1) * size
 
     # Base query
-    base_query = select(Skill)
+    base_query = select(Skill).order_by(Skill.skill_name.asc())
     
     # Add search filter if search term is provided
     if search:
