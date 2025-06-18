@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
-from sqlalchemy import select, func, or_, distinct, not_
+from sqlalchemy import select, func, or_, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from typing import List, Tuple, Optional
@@ -134,7 +134,8 @@ async def find_similar_users(
     """
     # Get current user's skills
     stmt = (
-        select(User).options(selectinload(User.skills)).where(User.user_id == user_id)
+        select(User).options(
+            selectinload(User.skills)).where(User.user_id == user_id)
     )
     result = await session.execute(stmt)
     current_user = result.scalar_one_or_none()
@@ -146,7 +147,8 @@ async def find_similar_users(
 
     # Get all users except current user with their skills
     stmt = (
-        select(User).options(selectinload(User.skills)).where(User.user_id != user_id)
+        select(User).options(
+            selectinload(User.skills)).where(User.user_id != user_id)
     )
     result = await session.execute(stmt)
     users = result.scalars().all()
@@ -174,11 +176,11 @@ async def find_similar_users(
     summary="Get top job recommendation",
     description="""
     Get the top 1 job recommendation based on log likelihood score.
-    
+
     The recommendation is based on:
     1. Job title similarity with user's current job
     2. Skill matching using log likelihood
-    
+
     Returns:
     - Best matching job with:
         - Job details (ID, title)
@@ -193,7 +195,8 @@ async def get_top_job_recommendation(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Get top job recommendation based on authenticated user's skills using LLS similarity.
+    Get top job recommendation based on
+    authenticated user's skills using LLS similarity.
     """
     print("\n=== Starting Job Recommendation Process ===")
 
@@ -208,9 +211,9 @@ async def get_top_job_recommendation(
 
     user_skills = [skill.skill_name for skill in user.skills]
 
-    print(f"\nUser Info:")
+    print("\nUser Info:")
     print(f"User ID: {user.user_id}")
-    print(f"Username: {user.username}")
+    print(f"Full Name: {user.full_name}")
     print(f"Job Title: {user.job_title}")
     print(f"User Skills: {user_skills}")
 
@@ -221,7 +224,8 @@ async def get_top_job_recommendation(
         for variation in variations:
             if variation.lower() == user.job_title.lower():
                 print(
-                    f"Found matching job title variation: {variation} in category: {category}"
+                    f"Found matching job title variation: {variation}"
+                    f" in category: {category}"
                 )
                 job_title_variations = JOB_TITLE_VARIATIONS.get(category)
                 matched_category = category
@@ -274,9 +278,16 @@ async def get_top_job_recommendation(
     print("\nCalculating LLS scores for all jobs:")
     for job in jobs:
         job_skills = [skill.skill_name for skill in job.required_skills]
-        lls_value = llr_similarity(user_skills, job_skills, universe=all_skills)
+        lls_value = llr_similarity(
+            user_skills,
+            job_skills,
+            universe=all_skills
+        )
 
-        print(f"Job: {job.job_title} | Skills: {job_skills} | LLS: {lls_value:.4f}")
+        print(
+            f"Job: {job.job_title} |"
+            f" Skills: {job_skills} | LLS: {lls_value:.4f}"
+        )
 
         job_scores.append(
             {
@@ -302,7 +313,7 @@ async def get_top_job_recommendation(
             "recommended_skills": [],
         }
 
-    print(f"\nBest Matching Job:")
+    print("\nBest Matching Job:")
     print(f"Title: {best_job.job_title}")
     print(f"Log Likelihood Score: {max_lls_value:.4f}")
     print(f"Required Skills: {best_job_skills}")
@@ -313,7 +324,9 @@ async def get_top_job_recommendation(
 
     # Get skill details for recommended skills
     if recommended_skill_names:
-        query = select(Skill).where(Skill.skill_name.in_(recommended_skill_names))
+        query = select(Skill).where(Skill.skill_name.in_(
+            recommended_skill_names
+        ))
         result = await session.execute(query)
         recommended_skills = result.scalars().all()
         print("\nRecommended Skills Details:")
@@ -325,7 +338,8 @@ async def get_top_job_recommendation(
 
     # Get matching skills
     matching_skills = [
-        skill for skill in best_job.required_skills if skill.skill_name in user_skills
+        skill for skill in best_job.required_skills
+        if skill.skill_name in user_skills
     ]
 
     print("\nMatching Skills:")
@@ -342,11 +356,17 @@ async def get_top_job_recommendation(
             "log_likelihood": round(max_lls_value, 4),
             "skills": {
                 "matching": [
-                    {"skill_id": skill.skill_id, "skill_name": skill.skill_name}
+                    {
+                        "skill_id": skill.skill_id,
+                        "skill_name": skill.skill_name,
+                    }
                     for skill in matching_skills
                 ],
                 "recommended": [
-                    {"skill_id": skill.skill_id, "skill_name": skill.skill_name}
+                    {
+                        "skill_id": skill.skill_id,
+                        "skill_name": skill.skill_name,
+                    }
                     for skill in recommended_skills
                 ],
             },

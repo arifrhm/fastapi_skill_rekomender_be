@@ -76,7 +76,7 @@ uvicorn main:app --reload
 - POST `/api/v1/users/register` - Register a new user
   ```json
   {
-    "username": "user1",
+    "full_name": "Your Full Name",
     "email": "user1@example.com",
     "password": "your_password",
     "job_title": "Developer"
@@ -86,7 +86,7 @@ uvicorn main:app --reload
   ```json
   {
     "user_id": 1,
-    "username": "user1",
+    "full_name": "user1",
     "email": "user1@example.com",
     "job_title": "Developer"
   }
@@ -113,7 +113,7 @@ uvicorn main:app --reload
   ```json
   {
     "user_id": 1,
-    "username": "user1",
+    "full_name": "user1",
     "email": "user1@example.com",
     "job_title": "Developer"
   }

@@ -1,5 +1,5 @@
 from typing import List, Any
-from sqlalchemy import Column, Integer, String, ForeignKey, Table, Text, Enum
+from sqlalchemy import Column, Integer, String, ForeignKey, Table, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from pydantic import BaseModel, EmailStr
 
@@ -82,14 +82,21 @@ class User(Base):
     __tablename__ = "users"
 
     user_id: Mapped[int] = mapped_column(primary_key=True)
-    username: Mapped[str] = mapped_column(String(255), unique=True)
+    full_name: Mapped[str] = mapped_column(String(255))
     email: Mapped[str] = mapped_column(String(255), unique=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     job_title: Mapped[str] = mapped_column(String(100))
 
-    skills = relationship("Skill", secondary=user_skills, back_populates="users")
-    roles = relationship("Role", secondary=user_roles, back_populates="users")
-    audit_history = relationship("AuditHistory", back_populates="user", cascade="all, delete-orphan")
+    skills = relationship(
+        "Skill",
+        secondary=user_skills,
+        back_populates="users",
+    )
+    roles = relationship(
+        "Role", secondary=user_roles, back_populates="users"
+    )
+    audit_history = relationship(
+        "AuditHistory", back_populates="user", cascade="all, delete-orphan")
 
 
 class Skill(Base):
@@ -98,10 +105,14 @@ class Skill(Base):
     skill_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     skill_name: Mapped[str] = mapped_column(String(255), unique=True)
 
-    users = relationship("User", secondary=user_skills, back_populates="skills")
+    users = relationship(
+        "User",
+        secondary=user_skills,
+        back_populates="skills",
+    )
     jobs = relationship(
-        "Job", 
-        secondary=job_skills, 
+        "Job",
+        secondary=job_skills,
         back_populates="required_skills"
     )
 
@@ -117,9 +128,9 @@ class Job(Base):
     job_details: Mapped[str] = mapped_column(Text)
 
     required_skills = relationship(
-        "Skill", 
-        secondary=job_skills, 
-        back_populates="jobs"
+        "Skill",
+        secondary=job_skills,
+        back_populates="jobs",
     )
 
 
@@ -141,7 +152,7 @@ class RoleResponse(RoleBase):
 
 
 class UserBase(BaseModel):
-    username: str
+    full_name: str
     email: EmailStr
     job_title: str
 
@@ -203,10 +214,12 @@ class AuditHistory(Base):
     __tablename__ = "audit_history"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey(
+        "users.user_id", ondelete="CASCADE"
+    ))
     ip_address: Mapped[str] = mapped_column(String(50))
     recommendation_result: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[str] = mapped_column(String(50))  # Store timestamp as string
+    created_at: Mapped[str] = mapped_column(String(50))
 
     user = relationship("User", back_populates="audit_history")
 
@@ -217,7 +230,7 @@ class AuditHistoryResponse(BaseModel):
     ip_address: str
     recommendation_result: str
     created_at: str
-    username: str
+    full_name: str
 
     class Config:
         from_attributes = True

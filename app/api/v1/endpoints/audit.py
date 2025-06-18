@@ -1,14 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
-from datetime import datetime
 
 from app.database import get_session
 from app.models import AuditHistory, AuditHistoryResponse, User
 from app.core.auth import get_admin_user
 
 router = APIRouter()
+
 
 @router.get("/audit-history", response_model=List[AuditHistoryResponse])
 async def get_audit_history(
@@ -26,17 +26,17 @@ async def get_audit_history(
         .offset(skip)
         .limit(limit)
     )
-    
+
     result = await session.execute(query)
     audit_history = result.scalars().all()
-    
-    # Get usernames for all entries
+
+    # Get full names for all entries
     response = []
     for audit in audit_history:
         user_query = select(User).where(User.user_id == audit.user_id)
         user_result = await session.execute(user_query)
         user = user_result.scalar_one_or_none()
-        
+
         if user:
             response.append(AuditHistoryResponse(
                 id=audit.id,
@@ -44,10 +44,11 @@ async def get_audit_history(
                 ip_address=audit.ip_address,
                 recommendation_result=audit.recommendation_result,
                 created_at=audit.created_at,
-                username=user.username
+                full_name=user.full_name
             ))
-    
+
     return response
+
 
 @router.get("/audit-history/admin", response_model=List[AuditHistoryResponse])
 async def get_all_audit_history(
@@ -65,17 +66,17 @@ async def get_all_audit_history(
         .offset(skip)
         .limit(limit)
     )
-    
+
     result = await session.execute(query)
     audit_history = result.scalars().all()
-    
-    # Get usernames for all entries
+
+    # Get full names for all entries
     response = []
     for audit in audit_history:
         user_query = select(User).where(User.user_id == audit.user_id)
         user_result = await session.execute(user_query)
         user = user_result.scalar_one_or_none()
-        
+
         if user:
             response.append(AuditHistoryResponse(
                 id=audit.id,
@@ -83,7 +84,7 @@ async def get_all_audit_history(
                 ip_address=audit.ip_address,
                 recommendation_result=audit.recommendation_result,
                 created_at=audit.created_at,
-                username=user.username
+                full_name=user.full_name
             ))
-    
-    return response 
+
+    return response
