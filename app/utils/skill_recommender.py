@@ -2,6 +2,26 @@ import numpy as np
 from collections import Counter
 
 
+def cosine_similarity(set_a, set_b, universe):
+    """
+    Calculate cosine similarity using a fixed skill universe.
+    """
+    a = set(set_a)
+    b = set(set_b)
+
+    vec_a = np.array([1 if skill in a else 0 for skill in universe])
+    vec_b = np.array([1 if skill in b else 0 for skill in universe])
+
+    dot_product = np.dot(vec_a, vec_b)
+    norm_a = np.linalg.norm(vec_a)
+    norm_b = np.linalg.norm(vec_b)
+
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+
+    return dot_product / (norm_a * norm_b)
+
+
 def entropy(*counts):
     """
     Calculate entropy for LLS similarity calculation.

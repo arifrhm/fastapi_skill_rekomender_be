@@ -1,151 +1,181 @@
-# FastAPI Skill Recommender
+# FastAPI Skill Recommender Backend
 
-A FastAPI application for skill recommendations using Tortoise ORM with PostgreSQL and Polars.
+A FastAPI-based backend service for job skill recommendations using multiple similarity algorithms.
 
 ## Features
 
-- Bearer token authentication with password
-- Skill management
-- Job position management
-- Skill-based job recommendations
-- PostgreSQL database with Tortoise ORM
-- Fast data processing with Polars
-
-## Prerequisites
-
-- Python 3.8+
-- PostgreSQL 12+
-
-## Installation
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd fastapi-skill-recommender
-```
-
-2. Create and activate a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Create a `.env` file in the project root with the following variables:
-```env
-# Application settings
-VERSION=1
-
-# Database settings
-DB_USER=your_postgres_user
-DB_PASSWORD=your_postgres_password
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=skill_recommender
-
-# JWT settings
-SECRET_KEY=your-secret-key-here
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-REFRESH_TOKEN_EXPIRE_DAYS=7
-```
-
-5. Create the PostgreSQL database:
-```bash
-createdb skill_recommender
-```
-
-## Running the Application
-
-1. Start the FastAPI server:
-```bash
-uvicorn main:app --reload
-```
-
-2. Access the API documentation:
-- Swagger UI: http://localhost:8000/api/v1/docs
-- ReDoc: http://localhost:8000/api/v1/redoc
+- User authentication and authorization
+- Job and skill management
+- Multiple recommendation algorithms:
+  - Cosine Similarity
+  - Log Likelihood Ratio (LLR)
+  - Combined recommendations
+- Detailed skills analysis
+- Audit logging
 
 ## API Endpoints
 
 ### Authentication
-- POST `/api/v1/users/register` - Register a new user
-  ```json
-  {
-    "full_name": "Your Full Name",
-    "email": "user1@example.com",
-    "password": "your_password",
-    "job_title": "Developer"
-  }
-  ```
-  Response:
-  ```json
-  {
-    "user_id": 1,
-    "full_name": "user1",
-    "email": "user1@example.com",
-    "job_title": "Developer"
-  }
-  ```
+- `POST /api/v1/auth/login` - User login
+- `POST /api/v1/auth/register` - User registration
 
-- POST `/api/v1/users/token` - Get Bearer token for authentication
-  ```json
-  {
-    "email": "user1@example.com",
-    "password": "your_password"
-  }
-  ```
-  Response:
-  ```json
-  {
-    "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
-    "token_type": "bearer"
-  }
-  ```
+### Jobs
+- `GET /api/v1/jobs/` - Get all jobs with pagination
+- `GET /api/v1/jobs/top-recommendation` - Get top job recommendation using cosine similarity
+- `GET /api/v1/jobs/cosine-recommendation` - Get recommendations using cosine similarity only
+- `GET /api/v1/jobs/llr-recommendation` - Get recommendations using LLS (Log Likelihood Ratio) only
+- `GET /api/v1/jobs/combined-recommendation` - Get recommendations using both cosine similarity and LLS
+- `GET /api/v1/jobs/job/{job_id}/skills-analysis` - Get detailed skills analysis for a specific job
 
-### User Management
-- GET `/api/v1/users/me` - Get current user profile (requires Bearer token)
-  Response:
-  ```json
-  {
-    "user_id": 1,
-    "full_name": "user1",
-    "email": "user1@example.com",
-    "job_title": "Developer"
-  }
-  ```
+### Skills
+- `GET /api/v1/skills/` - Get all skills
+- `POST /api/v1/skills/` - Create new skill
 
-### Skill Management
-- GET `/api/v1/skills` - List all skills (requires Bearer token)
-- POST `/api/v1/skills` - Create a new skill (requires Bearer token)
-- POST `/api/v1/skills/user/{skill_id}` - Add skill to user (requires Bearer token)
-- DELETE `/api/v1/skills/user/{skill_id}` - Remove skill from user (requires Bearer token)
+### Users
+- `GET /api/v1/users/me` - Get current user profile
+- `PUT /api/v1/users/me` - Update user profile
 
-### Job Position Management
-- GET `/api/v1/jobs` - List all job positions (requires Bearer token)
-- POST `/api/v1/jobs` - Create a new job position (requires Bearer token)
-- GET `/api/v1/jobs/recommendations` - Get job recommendations based on user skills (requires Bearer token)
+## Recommendation Algorithms
 
-## Authentication
+### 1. Cosine Similarity
+- Measures similarity between user skills and job requirements
+- Uses vector representation of skills
+- Range: 0 to 1 (higher is better)
 
-The API uses Bearer token authentication with password verification. To access protected endpoints:
+### 2. Log Likelihood Ratio (LLR)
+- Statistical measure of association between skill sets
+- Considers the likelihood of skill co-occurrence
+- Range: 0 to infinity (higher is better)
 
-1. Register a new user using the `/api/v1/users/register` endpoint with your email and password
-2. Get a Bearer token using the `/api/v1/users/token` endpoint with your email and password
-3. Include the token in the Authorization header for subsequent requests:
-```
-Authorization: Bearer <your_token>
+### 3. Combined Recommendations
+- Weighted combination of both algorithms
+- Default weights: Cosine (60%), LLS (40%)
+- Provides comprehensive ranking
+
+## Response Format
+
+### Cosine Similarity Recommendation Response
+```json
+{
+  "algorithm": "cosine_similarity",
+  "description": "Recommendations based on vector similarity between user skills and job requirements",
+  "top_recommendation": {
+    "job_id": 1,
+    "title": "Backend Developer",
+    "skills": ["Python", "FastAPI", "SQL"],
+    "cosine_score": 0.85,
+    "algorithm": "cosine_similarity"
+  },
+  "all_recommendations": [...],
+  "user_skills": ["Python", "JavaScript"],
+  "total_jobs_analyzed": 50,
+  "recommendation_date": "2024-01-01T12:00:00"
+}
 ```
 
-## Database Schema
+### LLS Recommendation Response
+```json
+{
+  "algorithm": "llr_similarity",
+  "description": "Recommendations based on Log Likelihood Ratio statistical association",
+  "top_recommendation": {
+    "job_id": 2,
+    "title": "Frontend Developer",
+    "skills": ["JavaScript", "React", "CSS"],
+    "llr_score": 15.2,
+    "algorithm": "llr_similarity"
+  },
+  "all_recommendations": [...],
+  "user_skills": ["Python", "JavaScript"],
+  "total_jobs_analyzed": 50,
+  "recommendation_date": "2024-01-01T12:00:00"
+}
+```
 
-The application uses the following tables:
-- `users_trial` - User information (including hashed passwords)
-- `skills_trial` - Available skills
-- `users_skills_trial` - User-skill relationships
-- `job_positions_trial` - Job positions
-- `position_skills_trial` - Job position-skill relationships 
+### Combined Recommendation Response
+```json
+{
+  "cosine_similarity_recommendations": {
+    "algorithm": "cosine_similarity",
+    "description": "Recommendations based on vector similarity between user skills and job requirements",
+    "top_recommendation": {...},
+    "all_recommendations": [...],
+    "total_jobs_analyzed": 50
+  },
+  "llr_similarity_recommendations": {
+    "algorithm": "llr_similarity",
+    "description": "Recommendations based on Log Likelihood Ratio statistical association",
+    "top_recommendation": {...},
+    "all_recommendations": [...],
+    "total_jobs_analyzed": 50
+  },
+  "combined_recommendations": {
+    "algorithm": "combined",
+    "description": "Weighted combination of cosine similarity (60%) and LLS (40%)",
+    "top_recommendation": {
+      "job_id": 1,
+      "title": "Backend Developer",
+      "skills": ["Python", "FastAPI", "SQL"],
+      "cosine_score": 0.85,
+      "llr_score": 12.5,
+      "combined_score": 0.71,
+      "algorithm": "combined"
+    },
+    "all_recommendations": [...],
+    "total_jobs_analyzed": 50
+  },
+  "user_skills": ["Python", "JavaScript"],
+  "summary": {
+    "total_jobs_available": 50,
+    "user_skill_count": 2,
+    "recommendation_date": "2024-01-01T12:00:00"
+  }
+}
+```
+
+### Skills Analysis Response
+```json
+{
+  "job": {
+    "job_id": 1,
+    "job_title": "Backend Developer",
+    "description": "Job description..."
+  },
+  "similarity_scores": {
+    "cosine_similarity": 0.85,
+    "llr_similarity": 12.5
+  },
+  "skills_analysis": {
+    "matching_skills": [...],
+    "recommended_skills": [...],
+    "missing_skills": [...]
+  },
+  "stats": {
+    "total_user_skills": 5,
+    "total_job_skills": 8,
+    "matching_count": 3,
+    "recommended_count": 5,
+    "missing_count": 2,
+    "match_percentage": 37.5
+  }
+}
+```
+
+## Installation
+
+1. Clone the repository
+2. Install dependencies: `pip install -r requirements.txt`
+3. Set up database and run migrations
+4. Start the server: `uvicorn main:app --reload`
+
+## Docker
+
+Use the provided Docker configuration for containerized deployment:
+
+```bash
+docker-compose -f docker-compose.dev.yml up --build
+```
+
+## Development
+
+The project includes Docker configuration for development with hot reload and database setup. 
