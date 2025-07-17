@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  api:
+    # Development specific overrides
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - .:/app
+      - /app/venv
+      - /app/__pycache__
+      - /app/.pytest_cache
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--log-level", "debug"]
+    stdin_open: true
+    tty: true
+
+  postgres:
+    # Development specific overrides
+    environment:
+      POSTGRES_DB: skill_recommender_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      - ./migrations:/docker-entrypoint-initdb.d/migrations 
