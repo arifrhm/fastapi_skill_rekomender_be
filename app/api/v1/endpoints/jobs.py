@@ -531,7 +531,22 @@ async def get_combined_job_recommendation(
 
 @router.get(
     "/cosine-recommendation",
-    summary="Get job recommendations using cosine similarity only"
+    summary="Get job recommendations using cosine similarity only",
+    description="""
+    Get job recommendations using cosine similarity algorithm.
+    
+    The recommendation is based on:
+    1. Vector similarity between user skills and job requirements
+    2. Cosine similarity calculation
+    
+    Returns:
+    - Best matching job with:
+        - Job details (ID, title)
+        - Similarity score
+        - Matching skills (skills user already has)
+        - Recommended skills (skills user needs to learn)
+    - All job scores sorted by cosine similarity
+    """
 )
 async def get_cosine_recommendation(
     request: Request,
@@ -539,9 +554,11 @@ async def get_cosine_recommendation(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Get job recommendations using only cosine similarity algorithm.
+    Get job recommendations using cosine similarity algorithm.
     """
-    # Get user skills
+    print("\n=== Starting Cosine Similarity Job Recommendation Process ===")
+
+    # Get user's skills with proper async loading
     query = (
         select(User)
         .options(selectinload(User.skills))
@@ -551,67 +568,174 @@ async def get_cosine_recommendation(
     user = result.scalar_one()
     user_skills = [skill.skill_name for skill in user.skills]
 
-    # Get all skills for universe
+    print("\nUser Info:")
+    print(f"User ID: {user.user_id}")
+    print(f"Full Name: {user.full_name}")
+    print(f"Job Title: {user.job_title}")
+    print(f"User Skills: {user_skills}")
+
+    # Get all unique skills from the database for universe calculation
     all_skills_query = select(distinct(Skill.skill_name))
     all_skills_result = await session.execute(all_skills_query)
     all_skills = [skill[0] for skill in all_skills_result.fetchall()]
 
-    # Get all jobs
+    print(f"\nTotal unique skills in database: {len(all_skills)}")
+
+    # Get all jobs with their skills
     jobs_query = select(Job).options(selectinload(Job.required_skills))
     result = await session.execute(jobs_query)
     jobs = result.scalars().all()
 
+    print(f"\nFound {len(jobs)} jobs to analyze")
+
+    # Calculate cosine similarity for each job
+    max_score = float("-inf")
+    best_job = None
+    best_job_skills = None
     job_scores = []
 
+    print("\nCalculating cosine similarity scores for all jobs:")
     for job in jobs:
         job_skills = [skill.skill_name for skill in job.required_skills]
-        cosine_score = cosine_similarity(user_skills, job_skills, all_skills)
+        score = cosine_similarity(user_skills, job_skills, all_skills)
+        
+        print(
+            f"Job: {job.job_title} | "
+            f"Skills: {job_skills} | "
+            f"Score: {score:.4f}"
+        )
         
         job_scores.append({
             "job_id": job.job_id,
             "title": job.job_title,
             "skills": job_skills,
-            "cosine_score": round(cosine_score, 4),
+            "cosine_score": score,
             "algorithm": "cosine_similarity"
         })
+        
+        if score > max_score:
+            max_score = score
+            best_job = job
+            best_job_skills = job_skills
+            print("*** New Best Match! ***")
 
-    # Sort by cosine score
-    recommendations = sorted(
-        job_scores, 
-        key=lambda x: x["cosine_score"], 
-        reverse=True
-    )[:10]
+    if not best_job:
+        print("\nNo matching jobs found!")
+        return {
+            "message": "No matching job positions found",
+            "job": None,
+            "similarity_score": 0,
+            "recommended_skills": [],
+            "algorithm": "cosine_similarity",
+            "all_job_scores": [],
+            "user_skills": user_skills,
+            "total_jobs_analyzed": len(job_scores),
+            "recommendation_date": datetime.now().isoformat()
+        }
 
-    result_data = {
+    print("\nBest Matching Job:")
+    print(f"Title: {best_job.job_title}")
+    print(f"Cosine Similarity Score: {max_score:.4f}")
+    print(f"Required Skills: {best_job_skills}")
+
+    # Get recommended skills
+    recommended_skill_names = recommend_skills(user_skills, best_job_skills)
+    print(f"\nRecommended Skills: {recommended_skill_names}")
+
+    # Get skill details for recommended skills
+    if recommended_skill_names:
+        query = select(Skill).where(
+            Skill.skill_name.in_(recommended_skill_names)
+        )
+        result = await session.execute(query)
+        recommended_skills = result.scalars().all()
+        print("\nRecommended Skills Details:")
+        for skill in recommended_skills:
+            print(f"- {skill.skill_name} (ID: {skill.skill_id})")
+    else:
+        recommended_skills = []
+        print("\nNo recommended skills found")
+
+    # Get matching skills
+    matching_skills = [
+        skill for skill in best_job.required_skills
+        if skill.skill_name in user_skills
+    ]
+
+    print("\nMatching Skills:")
+    for skill in matching_skills:
+        print(f"- {skill.skill_name}")
+
+    print("\n=== End of Cosine Similarity Job Recommendation Process ===\n")
+
+    # Prepare recommendation result
+    recommendation_result = {
         "algorithm": "cosine_similarity",
         "description": (
             "Recommendations based on vector similarity between "
             "user skills and job requirements"
         ),
-        "top_recommendation": recommendations[0] if recommendations else None,
-        "all_recommendations": recommendations,
+        "job": {
+            "job_id": best_job.job_id,
+            "job_title": best_job.job_title,
+            "similarity_score": round(max_score, 4),
+            "skills": {
+                "matching": [
+                    {
+                        "skill_id": skill.skill_id,
+                        "skill_name": skill.skill_name,
+                    }
+                    for skill in matching_skills
+                ],
+                "recommended": [
+                    {
+                        "skill_id": skill.skill_id,
+                        "skill_name": skill.skill_name,
+                    }
+                    for skill in recommended_skills
+                ],
+            },
+        },
+        "all_job_scores": sorted(
+            job_scores, key=lambda x: x["cosine_score"], reverse=True
+        )[:10],
         "user_skills": user_skills,
         "total_jobs_analyzed": len(job_scores),
         "recommendation_date": datetime.now().isoformat()
     }
 
-    # Audit the recommendation
+    # Log audit history
     client_host = request.client.host if request.client else "unknown"
     audit_entry = AuditHistory(
         user_id=current_user.user_id,
         ip_address=client_host,
-        recommendation_result=json.dumps(result_data),
+        recommendation_result=json.dumps(recommendation_result),
         created_at=datetime.now().isoformat()
     )
     session.add(audit_entry)
     await session.commit()
 
-    return result_data
+    return recommendation_result
 
 
 @router.get(
     "/llr-recommendation",
-    summary="Get job recommendations using LLS (Log Likelihood Ratio) only"
+    summary="Get job recommendations using LLS (Log Likelihood Ratio) only",
+    description="""
+    Get job recommendations using LLS (Log Likelihood Ratio) algorithm.
+    
+    The recommendation is based on:
+    1. Job title similarity with user's current job
+    2. Skill matching using log likelihood ratio
+    
+    Returns:
+    - Best matching job with:
+        - Job details (ID, title)
+        - Log likelihood score
+        - Matching skills (skills user already has)
+        - Recommended skills (skills user needs to learn)
+    - All job scores sorted by LLS
+    """
 )
 async def get_llr_recommendation(
     request: Request,
@@ -619,9 +743,12 @@ async def get_llr_recommendation(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Get job recommendations using only LLS (Log Likelihood Ratio) algorithm.
+    Get job recommendations using LLS (Log Likelihood Ratio) algorithm
+    with enhanced logic from top recommendation.
     """
-    # Get user skills
+    print("\n=== Starting LLR Job Recommendation Process ===")
+
+    # Get user's skills with proper async loading
     query = (
         select(User)
         .options(selectinload(User.skills))
@@ -629,64 +756,200 @@ async def get_llr_recommendation(
     )
     result = await session.execute(query)
     user = result.scalar_one()
+
     user_skills = [skill.skill_name for skill in user.skills]
 
-    # Get all skills for universe
+    print("\nUser Info:")
+    print(f"User ID: {user.user_id}")
+    print(f"Full Name: {user.full_name}")
+    print(f"Job Title: {user.job_title}")
+    print(f"User Skills: {user_skills}")
+
+    # Find matching job title variations
+    job_title_variations = []
+    matched_category = None
+    for category, variations in JOB_TITLE_VARIATIONS.items():
+        for variation in variations:
+            if variation.lower() == user.job_title.lower():
+                print(
+                    f"Found matching job title variation: {variation}"
+                    f" in category: {category}"
+                )
+                job_title_variations = JOB_TITLE_VARIATIONS.get(category)
+                matched_category = category
+                break
+        if matched_category:
+            break
+
+    if job_title_variations:
+        print(f"\nJob title variations to search: {job_title_variations}")
+    else:
+        print("\nNo matching job title variations found, will search all jobs")
+
+    # Get all unique skills from the database for universe calculation
     all_skills_query = select(distinct(Skill.skill_name))
     all_skills_result = await session.execute(all_skills_query)
     all_skills = [skill[0] for skill in all_skills_result.fetchall()]
 
-    # Get all jobs
+    print(f"\nTotal unique skills in database: {len(all_skills)}")
+
+    # Get jobs with their skills, filtered by job title if variations found
     jobs_query = select(Job).options(selectinload(Job.required_skills))
+
+    if job_title_variations:
+        # Include jobs that match any variation from the matched category
+        title_filters = []
+        for variation in job_title_variations:
+            title_filters.append(Job.job_title.ilike(f"%{variation}%"))
+
+        jobs_query = jobs_query.where(or_(*title_filters))
+
+        # Print the SQL query for debugging
+        print("\nSQL Query:")
+        print(str(jobs_query))
+
     result = await session.execute(jobs_query)
     jobs = result.scalars().all()
 
+    print(f"\nFound {len(jobs)} matching jobs")
+    if jobs:
+        print("\nMatching jobs:")
+        for job in jobs:
+            print(f"- {job.job_title}")
+
+    # Calculate LLS for each job
+    max_lls_value = float("-inf")
+    best_job = None
+    best_job_skills = None
     job_scores = []
 
+    print("\nCalculating LLS scores for all jobs:")
     for job in jobs:
         job_skills = [skill.skill_name for skill in job.required_skills]
-        llr_score = llr_similarity(user_skills, job_skills, all_skills)
-        
-        job_scores.append({
-            "job_id": job.job_id,
-            "title": job.job_title,
-            "skills": job_skills,
-            "llr_score": round(llr_score, 4),
-            "algorithm": "llr_similarity"
-        })
+        lls_value = llr_similarity(
+            user_skills,
+            job_skills,
+            universe=all_skills
+        )
 
-    # Sort by LLS score
-    recommendations = sorted(
-        job_scores, 
-        key=lambda x: x["llr_score"], 
-        reverse=True
-    )[:10]
+        print(
+            f"Job: {job.job_title} |"
+            f" Skills: {job_skills} | LLS: {lls_value:.4f}"
+        )
 
-    result_data = {
+        job_scores.append(
+            {
+                "job_id": job.job_id,
+                "title": job.job_title,
+                "skills": job_skills,
+                "lls_score": lls_value,
+                "algorithm": "llr_similarity"
+            }
+        )
+
+        if lls_value > max_lls_value:
+            max_lls_value = lls_value
+            best_job = job
+            best_job_skills = job_skills
+            print("*** New Best Match! ***")
+
+    if not best_job:
+        print("\nNo matching jobs found!")
+        return {
+            "message": "No matching job positions found",
+            "job": None,
+            "log_likelihood": 0,
+            "recommended_skills": [],
+            "algorithm": "llr_similarity",
+            "all_job_scores": [],
+            "user_skills": user_skills,
+            "total_jobs_analyzed": len(job_scores),
+            "recommendation_date": datetime.now().isoformat()
+        }
+
+    print("\nBest Matching Job:")
+    print(f"Title: {best_job.job_title}")
+    print(f"Log Likelihood Score: {max_lls_value:.4f}")
+    print(f"Required Skills: {best_job_skills}")
+
+    # Get recommended skills
+    recommended_skill_names = recommend_skills(user_skills, best_job_skills)
+    print(f"\nRecommended Skills: {recommended_skill_names}")
+
+    # Get skill details for recommended skills
+    if recommended_skill_names:
+        query = select(Skill).where(Skill.skill_name.in_(
+            recommended_skill_names
+        ))
+        result = await session.execute(query)
+        recommended_skills = result.scalars().all()
+        print("\nRecommended Skills Details:")
+        for skill in recommended_skills:
+            print(f"- {skill.skill_name} (ID: {skill.skill_id})")
+    else:
+        recommended_skills = []
+        print("\nNo recommended skills found")
+
+    # Get matching skills
+    matching_skills = [
+        skill for skill in best_job.required_skills
+        if skill.skill_name in user_skills
+    ]
+
+    print("\nMatching Skills:")
+    for skill in matching_skills:
+        print(f"- {skill.skill_name}")
+
+    print("\n=== End of LLR Job Recommendation Process ===\n")
+
+    # Prepare recommendation result
+    recommendation_result = {
         "algorithm": "llr_similarity",
         "description": (
             "Recommendations based on Log Likelihood Ratio "
-            "statistical association"
+            "statistical association with job title filtering"
         ),
-        "top_recommendation": recommendations[0] if recommendations else None,
-        "all_recommendations": recommendations,
+        "job": {
+            "job_id": best_job.job_id,
+            "job_title": best_job.job_title,
+            "log_likelihood": round(max_lls_value, 4),
+            "skills": {
+                "matching": [
+                    {
+                        "skill_id": skill.skill_id,
+                        "skill_name": skill.skill_name,
+                    }
+                    for skill in matching_skills
+                ],
+                "recommended": [
+                    {
+                        "skill_id": skill.skill_id,
+                        "skill_name": skill.skill_name,
+                    }
+                    for skill in recommended_skills
+                ],
+            },
+        },
+        "all_job_scores": sorted(
+            job_scores, key=lambda x: x["lls_score"], reverse=True
+        )[:10],
         "user_skills": user_skills,
         "total_jobs_analyzed": len(job_scores),
         "recommendation_date": datetime.now().isoformat()
     }
 
-    # Audit the recommendation
+    # Log audit history
     client_host = request.client.host if request.client else "unknown"
     audit_entry = AuditHistory(
         user_id=current_user.user_id,
         ip_address=client_host,
-        recommendation_result=json.dumps(result_data),
+        recommendation_result=json.dumps(recommendation_result),
         created_at=datetime.now().isoformat()
     )
     session.add(audit_entry)
     await session.commit()
 
-    return result_data
+    return recommendation_result
 
 
 @router.get(
